@@ -8,7 +8,7 @@
   :root{
     --bg:#0d0f14;--panel:#161a22;--panel2:#1d222c;--line:#2a313d;
     --ink:#eef1f6;--muted:#7e8794;--flag:#ff3b5c;--flag-glow:rgba(255,59,92,.35);
-    --safe:#2ee6a6;--warn:#ffb43b;--accent:#5b7cff;
+    --safe:#2ee6a6;--warn:#ffb43b;--accent:#5b7cff;--gold:#ffd24a;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Inter','Helvetica Neue',Arial,sans-serif;
@@ -21,6 +21,7 @@
   .flagmark{font-size:21px;filter:drop-shadow(0 0 8px var(--flag-glow))}
   .hright{display:flex;align-items:center;gap:16px}
   .quota{font-size:12px;color:var(--muted)}.quota b{color:var(--flag)}
+  .quota.pro b{color:var(--gold)}
   .userbox{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
   .userbox a{color:var(--accent);cursor:pointer;text-decoration:none;font-weight:600}
   .wrap{max-width:1140px;margin:0 auto;padding:34px 24px 90px;display:grid;grid-template-columns:1fr 440px;gap:36px}
@@ -71,9 +72,13 @@
   .share{padding:14px 22px;border-top:1px solid var(--line);text-align:center;font-size:12px;color:var(--muted)}
   .placeholder{padding:50px 22px;text-align:center;color:var(--muted)}
   .placeholder .big{font-size:42px;margin-bottom:14px;opacity:.5}
-  .lock{padding:20px 22px;text-align:center;border-top:1px solid var(--line);display:none}
-  .lock h4{color:var(--flag);margin-bottom:6px}.lock p{font-size:13px;color:var(--muted);margin-bottom:14px}
-  .lock button,.lock a{display:block;width:100%;padding:13px;border:none;border-radius:10px;background:var(--flag);color:#fff;font-weight:800;cursor:pointer;font-size:14px;text-decoration:none}
+  .gate{padding:24px 22px;text-align:center}
+  .gate .big{font-size:38px;margin-bottom:12px}
+  .gate h4{font-size:17px;margin-bottom:8px}
+  .gate p{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5}
+  .gate button,.gate a{display:block;width:100%;padding:13px;border:none;border-radius:10px;font-weight:800;cursor:pointer;font-size:14px;text-decoration:none}
+  .gate .pri{background:var(--flag);color:#fff;margin-bottom:9px}
+  .gate .pro{background:linear-gradient(135deg,var(--gold),#f0a92e);color:#1a1205}
   .hist{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
   .hist h4{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:12px;display:flex;justify-content:space-between}
   .hrow{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--line);font-size:13px}
@@ -102,7 +107,7 @@
 <header>
   <div class="brand"><span class="flagmark">&#128681;</span>RedFlag</div>
   <div class="hright">
-    <div class="quota">Scans gratuits : <b id="quotaTxt">3</b>/mois</div>
+    <div class="quota" id="quotaBox">Connecte-toi pour scanner</div>
     <div class="userbox" id="userbox"><a id="loginLink">Se connecter</a></div>
   </div>
 </header>
@@ -156,8 +161,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js";
-import { getFirestore, collection, addDoc, query, where, orderBy,
-  getDocs, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, query, where,
+  getDocs, deleteDoc, doc, getDoc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB0AyPSbhCsNOeDJtXiwnsZ-Ada75keg54",
@@ -174,6 +179,9 @@ const db = getFirestore(app);
 // ====== A REMPLACER : ton Stripe Payment Link (https://buy.stripe.com/xxxx) ======
 const STRIPE_LINK = "https://buy.stripe.com/14A14f9iM7CMgVSc8TfUQ00";
 // ================================================================================
+
+const FREE_LIMIT = 3;
+const monthKey = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); };
 
 const QUESTIONS=[
   {id:'budget',head:"Comment il parle d'argent ?",help:"Le rapport au budget est le signal #1.",
@@ -193,7 +201,7 @@ const QUESTIONS=[
     {t:"\u00ab J'ai d\u00e9j\u00e0 eu 3 freelances sur ce projet \u00bb",w:30},{t:"Il n'en parle pas",w:4}]},
 ];
 
-let answers={}, quota=3, currentUser=null;
+let answers={}, currentUser=null, profile=null;
 const quiz=document.getElementById('quiz');
 QUESTIONS.forEach(q=>{
   const block=document.createElement('div');block.className='q';
@@ -221,9 +229,48 @@ function verdict(score){
     msg:"Merci pour votre int\u00e9r\u00eat. Je travaille uniquement sur devis sign\u00e9 avec acompte de 50% et p\u00e9rim\u00e8tre fixe \u2014 chaque ajout fait l'objet d'un avenant. Si ce cadre vous convient, je vous envoie tout \u00e7a."};
 }
 
+// ---------- QUOTA via Firestore (par user, reset mensuel) ----------
+function remaining(){
+  if(!profile) return 0;
+  if(profile.pro) return Infinity;
+  if(profile.month!==monthKey()) return FREE_LIMIT; // mois pass\u00e9 -> reset virtuel
+  return Math.max(0, FREE_LIMIT - (profile.used||0));
+}
+function refreshQuotaUI(){
+  const box=document.getElementById('quotaBox');
+  if(!currentUser){ box.className='quota'; box.innerHTML='Connecte-toi pour scanner'; return; }
+  if(profile && profile.pro){ box.className='quota pro'; box.innerHTML='Plan <b>Illimit\u00e9</b> \u2728'; return; }
+  const r=remaining();
+  box.className='quota';
+  box.innerHTML='Scans gratuits : <b>'+r+'</b>/mois';
+}
+async function ensureProfile(uid){
+  const ref=doc(db,'users',uid);
+  const snap=await getDoc(ref);
+  if(!snap.exists()){
+    const fresh={pro:false,month:monthKey(),used:0,createdAt:serverTimestamp()};
+    await setDoc(ref,fresh); profile=fresh;
+  }else{
+    profile=snap.data();
+    if(profile.month!==monthKey()){ // reset mensuel persist\u00e9
+      profile.month=monthKey(); profile.used=0;
+      await updateDoc(ref,{month:profile.month,used:0});
+    }
+  }
+  refreshQuotaUI();
+}
+async function consumeOne(uid){
+  const ref=doc(db,'users',uid);
+  profile.used=(profile.used||0)+1; profile.month=monthKey();
+  await updateDoc(ref,{used:profile.used,month:profile.month});
+  refreshQuotaUI();
+}
+
 document.getElementById('scanBtn').onclick=async()=>{
+  if(!currentUser){ showGate('login'); return; }
   if(Object.keys(answers).length<QUESTIONS.length){alert("R\u00e9ponds \u00e0 tous les signaux pour un scan fiable.");return;}
-  if(quota<=0){showLock();return;}
+  if(remaining()<=0){ showGate('quota'); return; }
+
   let raw=Object.values(answers).reduce((s,a)=>s+a.w,0);
   const notes=document.getElementById('notes').value.toLowerCase();
   const triggers=['gratuit','book','portfolio','ami','pas cher','moins cher','simple','rapidement','urgent','confiance'];
@@ -251,35 +298,42 @@ document.getElementById('scanBtn').onclick=async()=>{
   document.querySelectorAll('#ring span').forEach((s,i)=>{setTimeout(()=>{if(i<lit)s.style.opacity='1';},120*i+200);});
   document.getElementById('copyMsg').onclick=function(){navigator.clipboard.writeText(v.msg);
     this.textContent='\u2713 Copi\u00e9';setTimeout(()=>this.textContent='Copier ce message',1600);};
-  quota--;document.getElementById('quotaTxt').textContent=quota;
 
-  if(currentUser){
-    const name=document.getElementById('cname').value.trim()||'Client sans nom';
-    try{
-      await addDoc(collection(db,'scans'),{uid:currentUser.uid,name,score,
-        verdict:v.label,createdAt:serverTimestamp()});
-      loadHistory();
-    }catch(e){console.error('Sauvegarde \u00e9chou\u00e9e',e);}
-  }
+  // consomme le quota (sauf pro) + sauvegarde le scan
+  if(!profile.pro) await consumeOne(currentUser.uid);
+  const name=document.getElementById('cname').value.trim()||'Client sans nom';
+  try{
+    await addDoc(collection(db,'scans'),{uid:currentUser.uid,name,score,verdict:v.label,createdAt:serverTimestamp()});
+    loadHistory();
+  }catch(e){console.error('Sauvegarde \u00e9chou\u00e9e',e);}
 };
 
-function showLock(){
+function showGate(kind){
   const stripeReady=STRIPE_LINK&&!STRIPE_LINK.includes('REMPLACE_MOI');
-  document.getElementById('resultArea').innerHTML=
-    '<div class="lock" style="display:block"><h4>\ud83d\udea9 Quota atteint</h4>'+
-    '<p>Tu as utilis\u00e9 tes 3 scans gratuits du mois. Passe en illimit\u00e9 + historique clients complet.</p>'+
-    (stripeReady
-      ? '<a href="'+STRIPE_LINK+'" target="_blank">Passer en illimit\u00e9 \u2014 9 \u20ac/mois</a>'
-      : '<button onclick="alert(\'D\u00e9mo : colle ton Stripe Payment Link dans le code (variable STRIPE_LINK) pour activer le paiement r\u00e9el.\')">Passer en illimit\u00e9 \u2014 9 \u20ac/mois</button>')+
-    '</div>';
+  const stripeBtn=stripeReady
+    ? '<a class="pro" href="'+STRIPE_LINK+'" target="_blank">Passer en illimit\u00e9 \u2014 9 \u20ac/mois</a>'
+    : '<button class="pro" onclick="alert(\'D\u00e9mo : colle ton Stripe Payment Link (variable STRIPE_LINK) pour activer le paiement r\u00e9el.\')">Passer en illimit\u00e9 \u2014 9 \u20ac/mois</button>';
+  let html;
+  if(kind==='login'){
+    html='<div class="gate"><div class="big">\ud83d\udd10</div><h4>Cr\u00e9e ton compte gratuit</h4>'+
+      '<p>3 scans gratuits par mois, ton historique client sauvegard\u00e9, sur tous tes appareils.</p>'+
+      '<button class="pri" id="gateLogin">Cr\u00e9er un compte / Se connecter</button></div>';
+  }else{
+    html='<div class="gate"><div class="big">\ud83d\udea9</div><h4>Quota mensuel atteint</h4>'+
+      '<p>Tu as utilis\u00e9 tes 3 scans gratuits ce mois-ci. Passe en illimit\u00e9 pour scanner chaque prospect sans compter.</p>'+
+      stripeBtn+'</div>';
+  }
+  document.getElementById('resultArea').innerHTML=html;
+  if(kind==='login') document.getElementById('gateLogin').onclick=openModal;
 }
 
+// ============ AUTH ============
 const modal=document.getElementById('authModal');
 let isSignup=false;
-const open=()=>modal.classList.add('on');
-const close=()=>modal.classList.remove('on');
-document.getElementById('loginLink').onclick=open;
-document.getElementById('closeModal').onclick=close;
+const openModal=()=>modal.classList.add('on');
+const closeModal=()=>modal.classList.remove('on');
+document.getElementById('loginLink').onclick=openModal;
+document.getElementById('closeModal').onclick=closeModal;
 function bindSwitch(){
   document.getElementById('switchLink').onclick=()=>{
     isSignup=!isSignup;
@@ -300,7 +354,7 @@ document.getElementById('authBtn').onclick=async()=>{
   try{
     if(isSignup) await createUserWithEmailAndPassword(auth,email,pass);
     else await signInWithEmailAndPassword(auth,email,pass);
-    close();
+    closeModal();
   }catch(e){
     const m={'auth/invalid-credential':'E-mail ou mot de passe incorrect.',
       'auth/email-already-in-use':'Cet e-mail a d\u00e9j\u00e0 un compte. Connecte-toi.',
@@ -310,18 +364,25 @@ document.getElementById('authBtn').onclick=async()=>{
   }
 };
 
-onAuthStateChanged(auth,user=>{
+onAuthStateChanged(auth,async user=>{
   currentUser=user;
   const ub=document.getElementById('userbox');
   if(user){
     ub.innerHTML='<span>'+user.email+'</span> \u00b7 <a id="logoutLink">D\u00e9connexion</a>';
     document.getElementById('logoutLink').onclick=()=>signOut(auth);
+    await ensureProfile(user.uid);
     loadHistory();
+    // efface le gate "login" si pr\u00e9sent
+    if(document.querySelector('.gate'))
+      document.getElementById('resultArea').innerHTML=
+        '<div class="placeholder"><div class="big">\ud83d\udd0d</div>Pr\u00eat. R\u00e9ponds aux signaux,<br>puis lance le scan.</div>';
   }else{
+    profile=null;
     ub.innerHTML='<a id="loginLink">Se connecter</a>';
-    document.getElementById('loginLink').onclick=open;
+    document.getElementById('loginLink').onclick=openModal;
     document.getElementById('histList').innerHTML='<div class="hist-empty">Connecte-toi pour sauvegarder ton historique client.</div>';
     document.getElementById('histCount').textContent='';
+    refreshQuotaUI();
   }
 });
 
@@ -329,24 +390,27 @@ async function loadHistory(){
   if(!currentUser)return;
   const list=document.getElementById('histList');
   try{
-    const qy=query(collection(db,'scans'),where('uid','==',currentUser.uid),orderBy('createdAt','desc'));
+    // pas d'orderBy -> aucun index composite requis ; on trie en JS
+    const qy=query(collection(db,'scans'),where('uid','==',currentUser.uid));
     const snap=await getDocs(qy);
     if(snap.empty){list.innerHTML='<div class="hist-empty">Aucun scan sauvegard\u00e9. Lance ton premier scan \ud83d\udc46</div>';
       document.getElementById('histCount').textContent='';return;}
-    document.getElementById('histCount').textContent=snap.size+' client'+(snap.size>1?'s':'');
+    const rows=[];
+    snap.forEach(d=>rows.push({id:d.id,...d.data()}));
+    rows.sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+    document.getElementById('histCount').textContent=rows.length+' client'+(rows.length>1?'s':'');
     list.innerHTML='';
-    snap.forEach(d=>{
-      const s=d.data();
+    rows.forEach(s=>{
       const col=s.score<25?'var(--safe)':s.score<55?'var(--warn)':'var(--flag)';
       const bg=s.score<25?'rgba(46,230,166,.12)':s.score<55?'rgba(255,180,59,.12)':'rgba(255,59,92,.12)';
       const row=document.createElement('div');row.className='hrow';
       row.innerHTML='<div class="hl"><span class="hbadge" style="color:'+col+';background:'+bg+'">'+s.score+'</span>'+
         '<span>'+s.name+'</span></div><button class="hdel" title="Supprimer">\u00d7</button>';
-      row.querySelector('.hdel').onclick=async()=>{await deleteDoc(doc(db,'scans',d.id));loadHistory();};
+      row.querySelector('.hdel').onclick=async()=>{await deleteDoc(doc(db,'scans',s.id));loadHistory();};
       list.appendChild(row);
     });
   }catch(e){
-    list.innerHTML='<div class="hist-empty">Erreur de chargement. V\u00e9rifie tes r\u00e8gles Firestore (index requis ?).</div>';
+    list.innerHTML='<div class="hist-empty">Erreur de chargement. V\u00e9rifie tes r\u00e8gles Firestore.</div>';
     console.error(e);
   }
 }
