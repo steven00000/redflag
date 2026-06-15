@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RedFlag — Scanne ton client avant de signer</title>
+<style>
+  :root{
+    --bg:#0d0f14;--panel:#161a22;--panel2:#1d222c;--line:#2a313d;
+    --ink:#eef1f6;--muted:#7e8794;--flag:#ff3b5c;--flag-glow:rgba(255,59,92,.35);
+    --safe:#2ee6a6;--warn:#ffb43b;--accent:#5b7cff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter','Helvetica Neue',Arial,sans-serif;
+    background:radial-gradient(900px 500px at 80% -10%,rgba(91,124,255,.10),transparent),var(--bg);
+    color:var(--ink);min-height:100vh;-webkit-font-smoothing:antialiased;}
+  header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;
+    border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(13,15,20,.85);
+    backdrop-filter:blur(10px);z-index:30;}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px;letter-spacing:-.02em}
+  .flagmark{font-size:21px;filter:drop-shadow(0 0 8px var(--flag-glow))}
+  .hright{display:flex;align-items:center;gap:16px}
+  .quota{font-size:12px;color:var(--muted)}.quota b{color:var(--flag)}
+  .userbox{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .userbox a{color:var(--accent);cursor:pointer;text-decoration:none;font-weight:600}
+  .wrap{max-width:1140px;margin:0 auto;padding:34px 24px 90px;display:grid;grid-template-columns:1fr 440px;gap:36px}
+  .eyebrow{font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--flag);margin-bottom:10px}
+  h1{font-size:34px;line-height:1.04;letter-spacing:-.03em;margin-bottom:10px}
+  h1 em{font-style:normal;color:var(--flag)}
+  .sub{color:var(--muted);font-size:15px;margin-bottom:30px;max-width:48ch;line-height:1.5}
+  .q{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:14px}
+  .q-head{font-size:14px;font-weight:700;margin-bottom:4px}
+  .q-help{font-size:12px;color:var(--muted);margin-bottom:14px}
+  .opts{display:flex;flex-direction:column;gap:8px}
+  .opt{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);
+    border-radius:10px;cursor:pointer;transition:.15s;background:var(--panel2);font-size:13.5px}
+  .opt:hover{border-color:var(--muted)}.opt input{display:none}
+  .dot{width:18px;height:18px;border-radius:50%;border:2px solid var(--muted);flex-shrink:0;transition:.15s}
+  .opt.sel{border-color:var(--flag);background:rgba(255,59,92,.07)}
+  .opt.sel .dot{border-color:var(--flag);background:var(--flag);box-shadow:0 0 0 3px var(--flag-glow)}
+  textarea{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    color:var(--ink);padding:12px 14px;font-family:inherit;font-size:13.5px;resize:vertical;min-height:70px}
+  textarea:focus{outline:none;border-color:var(--accent)}
+  .scanBtn{width:100%;padding:16px;border:none;border-radius:12px;font-family:inherit;font-weight:800;
+    font-size:16px;background:linear-gradient(135deg,var(--flag),#d8203f);color:#fff;cursor:pointer;
+    margin-top:6px;box-shadow:0 8px 30px var(--flag-glow);transition:.15s}
+  .scanBtn:hover{transform:translateY(-1px)}
+  .scanBtn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  .side{position:sticky;top:90px;align-self:start}
+  .gauge{background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+  .gauge-top{padding:26px 22px 18px;text-align:center;position:relative}
+  .score{font-size:64px;font-weight:900;line-height:1;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+  .score small{font-size:22px;color:var(--muted);font-weight:700}
+  .verdict{font-size:15px;font-weight:800;margin-top:8px;text-transform:uppercase;letter-spacing:.04em}
+  .meter{height:10px;background:var(--panel2);border-radius:6px;margin:18px 22px 0;overflow:hidden}
+  .meter-fill{height:100%;width:0;border-radius:6px;transition:width .8s cubic-bezier(.2,.8,.2,1)}
+  .ring{display:flex;justify-content:center;gap:5px;margin:16px 0 4px}
+  .ring span{font-size:18px;opacity:.25;transition:.3s}
+  .flags{padding:18px 22px;border-top:1px solid var(--line)}
+  .flags h4{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:12px}
+  .flagrow{display:flex;gap:11px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--line);font-size:13px}
+  .flagrow:last-child{border-bottom:none}
+  .flagrow .ic{flex-shrink:0;font-size:15px;margin-top:1px}
+  .flagrow .txt b{display:block;margin-bottom:2px}.flagrow .txt span{color:var(--muted);font-size:12px;line-height:1.45}
+  .advice{padding:18px 22px;border-top:1px solid var(--line);background:var(--panel2)}
+  .advice h4{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--safe);margin-bottom:10px}
+  .advice p{font-size:13px;color:var(--ink);line-height:1.55}
+  .msgbox{margin-top:14px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:13px;font-size:12.5px;line-height:1.55;color:var(--muted);font-style:italic}
+  .copyBtn{margin-top:10px;width:100%;padding:11px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:9px;font-weight:700;font-size:13px;cursor:pointer}
+  .copyBtn:hover{border-color:var(--safe);color:var(--safe)}
+  .share{padding:14px 22px;border-top:1px solid var(--line);text-align:center;font-size:12px;color:var(--muted)}
+  .placeholder{padding:50px 22px;text-align:center;color:var(--muted)}
+  .placeholder .big{font-size:42px;margin-bottom:14px;opacity:.5}
+  .lock{padding:20px 22px;text-align:center;border-top:1px solid var(--line);display:none}
+  .lock h4{color:var(--flag);margin-bottom:6px}.lock p{font-size:13px;color:var(--muted);margin-bottom:14px}
+  .lock button,.lock a{display:block;width:100%;padding:13px;border:none;border-radius:10px;background:var(--flag);color:#fff;font-weight:800;cursor:pointer;font-size:14px;text-decoration:none}
+  .hist{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .hist h4{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:12px;display:flex;justify-content:space-between}
+  .hrow{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--line);font-size:13px}
+  .hrow:last-child{border-bottom:none}
+  .hrow .hl{display:flex;align-items:center;gap:10px}
+  .hbadge{font-weight:800;font-variant-numeric:tabular-nums;width:42px;text-align:center;border-radius:6px;padding:3px 0;font-size:12px}
+  .hrow .hdel{color:var(--muted);cursor:pointer;font-size:15px;background:none;border:none}
+  .hrow .hdel:hover{color:var(--flag)}
+  .hist-empty{font-size:12px;color:var(--muted);text-align:center;padding:8px 0}
+  .modal{position:fixed;inset:0;background:rgba(5,6,9,.8);backdrop-filter:blur(4px);display:none;
+    align-items:center;justify-content:center;z-index:100;padding:20px}
+  .modal.on{display:flex}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:28px;max-width:380px;width:100%}
+  .card h3{font-size:20px;margin-bottom:6px}
+  .card p{font-size:13px;color:var(--muted);margin-bottom:18px}
+  .card input{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--ink);padding:12px;font-size:14px;margin-bottom:10px;font-family:inherit}
+  .card input:focus{outline:none;border-color:var(--accent)}
+  .card .main{width:100%;padding:13px;border:none;border-radius:9px;background:var(--flag);color:#fff;font-weight:800;cursor:pointer;font-size:14px;margin-top:4px}
+  .card .alt{text-align:center;font-size:12px;color:var(--muted);margin-top:14px}
+  .card .alt a{color:var(--accent);cursor:pointer;font-weight:600}
+  .err{color:var(--flag);font-size:12px;margin-bottom:10px;min-height:14px}
+  @media(max-width:920px){.wrap{grid-template-columns:1fr}.side{position:static}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="flagmark">&#128681;</span>RedFlag</div>
+  <div class="hright">
+    <div class="quota">Scans gratuits : <b id="quotaTxt">3</b>/mois</div>
+    <div class="userbox" id="userbox"><a id="loginLink">Se connecter</a></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div>
+    <div class="eyebrow">Avant de signer ce client</div>
+    <h1>Ce prospect va te <em>pourrir la vie</em> ?</h1>
+    <p class="sub">D&eacute;cris les signaux. RedFlag les croise avec ce que tout freelance v&eacute;t&eacute;ran sait reconna&icirc;tre, et te sort un score de toxicit&eacute; + comment te prot&eacute;ger.</p>
+    <div id="quiz"></div>
+    <div class="q">
+      <div class="q-head">Nom du prospect (pour ton historique)</div>
+      <div class="q-help">Juste pour t'y retrouver. Visible seulement par toi.</div>
+      <textarea id="cname" style="min-height:44px" placeholder="Agence Dupont / M. Martin"></textarea>
+    </div>
+    <div class="q">
+      <div class="q-head">Un d&eacute;tail qui te met le doute ? (optionnel)</div>
+      <div class="q-help">Une phrase qu'il a dite, un truc qui cloche. &Ccedil;a affine le verdict.</div>
+      <textarea id="notes" placeholder="&laquo; Je connais quelqu'un qui le ferait moins cher mais bon... &raquo;"></textarea>
+    </div>
+    <button class="scanBtn" id="scanBtn">&#128681; Scanner ce client</button>
+  </div>
+
+  <div class="side">
+    <div class="gauge">
+      <div id="resultArea">
+        <div class="placeholder"><div class="big">&#128269;</div>R&eacute;ponds aux signaux &agrave; gauche,<br>puis lance le scan.</div>
+      </div>
+    </div>
+    <div class="hist" id="histBox">
+      <h4><span>Tes derniers scans</span><span id="histCount"></span></h4>
+      <div id="histList"><div class="hist-empty">Connecte-toi pour sauvegarder ton historique client.</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="authModal">
+  <div class="card">
+    <h3 id="authTitle">Connexion</h3>
+    <p id="authSub">Retrouve l'historique de tes clients scann&eacute;s sur tous tes appareils.</p>
+    <div class="err" id="authErr"></div>
+    <input type="email" id="authEmail" placeholder="ton@email.com" autocomplete="email">
+    <input type="password" id="authPass" placeholder="Mot de passe" autocomplete="current-password">
+    <button class="main" id="authBtn">Se connecter</button>
+    <div class="alt" id="authSwitch">Pas encore de compte ? <a id="switchLink">Cr&eacute;er un compte</a></div>
+    <div class="alt"><a id="closeModal">Fermer</a></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js";
+import { getFirestore, collection, addDoc, query, where, orderBy,
+  getDocs, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyB0AyPSbhCsNOeDJtXiwnsZ-Ada75keg54",
+  authDomain: "redflag-10bd6.firebaseapp.com",
+  projectId: "redflag-10bd6",
+  storageBucket: "redflag-10bd6.firebasestorage.app",
+  messagingSenderId: "872566851764",
+  appId: "1:872566851764:web:36b95b954f6873c4822fe1"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// ====== A REMPLACER : ton Stripe Payment Link (https://buy.stripe.com/xxxx) ======
+const STRIPE_LINK = "https://buy.stripe.com/REMPLACE_MOI";
+// ================================================================================
+
+const QUESTIONS=[
+  {id:'budget',head:"Comment il parle d'argent ?",help:"Le rapport au budget est le signal #1.",
+   opts:[{t:"Budget clair et annonc\u00e9 d'embl\u00e9e",w:0},{t:"\u00ab On verra \u00e7a plus tard \u00bb",w:18},
+    {t:"\u00ab Pas trop de budget mais super projet pour ton book \u00bb",w:30},{t:"Il n\u00e9gocie le prix avant m\u00eame de conna\u00eetre le scope",w:24}]},
+  {id:'scope',head:"Sa demande, elle est claire ?",help:"Le flou = la porte ouverte au travail gratuit.",
+   opts:[{t:"Brief pr\u00e9cis, il sait ce qu'il veut",w:0},{t:"Vague mais ouvert \u00e0 cadrer ensemble",w:8},
+    {t:"\u00ab Tu vois, un truc moderne, comme \u00e7a \u00bb",w:20},{t:"\u00c7a change \u00e0 chaque message",w:28}]},
+  {id:'urgence',head:"Le rapport au temps ?",help:"L'urgence artificielle sert \u00e0 te faire c\u00e9der.",
+   opts:[{t:"D\u00e9lai raisonnable, d\u00e9fini",w:0},{t:"\u00ab C'est urgent \u00bb sans vraie raison",w:16},
+    {t:"Il voulait \u00e7a pour hier",w:22},{t:"Pas press\u00e9 du tout, r\u00e9pond en 4 jours",w:10}]},
+  {id:'respect',head:"Comment il te traite d\u00e8s le 1er contact ?",help:"Le ton du d\u00e9but, c'est le ton de tout le projet.",
+   opts:[{t:"Poli, consid\u00e8re mon expertise",w:0},{t:"Un peu sec mais correct",w:8},
+    {t:"Te tutoie-ordonne, z\u00e9ro 'bonjour'",w:18},{t:"\u00ab C'est simple ce que je demande, non ? \u00bb",w:26}]},
+  {id:'histoire',head:"Il parle de ses anciens prestataires ?",help:"Comment il parle des autres = comment il parlera de toi.",
+   opts:[{t:"Pas le sujet / en parle bien",w:0},{t:"\u00ab Le dernier \u00e9tait nul \u00bb",w:22},
+    {t:"\u00ab J'ai d\u00e9j\u00e0 eu 3 freelances sur ce projet \u00bb",w:30},{t:"Il n'en parle pas",w:4}]},
+];
+
+let answers={}, quota=3, currentUser=null;
+const quiz=document.getElementById('quiz');
+QUESTIONS.forEach(q=>{
+  const block=document.createElement('div');block.className='q';
+  block.innerHTML='<div class="q-head">'+q.head+'</div><div class="q-help">'+q.help+'</div>';
+  const opts=document.createElement('div');opts.className='opts';
+  q.opts.forEach(o=>{
+    const lab=document.createElement('label');lab.className='opt';
+    lab.innerHTML='<span class="dot"></span><span>'+o.t+'</span>';
+    lab.onclick=()=>{answers[q.id]={w:o.w,t:o.t};
+      [...opts.children].forEach(c=>c.classList.remove('sel'));lab.classList.add('sel');};
+    opts.appendChild(lab);
+  });
+  block.appendChild(opts);quiz.appendChild(block);
+});
+
+function verdict(score){
+  if(score<25)return{label:"Client sain",color:'var(--safe)',ic:'\u2705',
+    advice:"Rien d'alarmant. Pose quand m\u00eame un cadre \u00e9crit (devis + p\u00e9rim\u00e8tre sign\u00e9) \u2014 un bon client respecte un bon cadre, \u00e7a ne co\u00fbte rien.",
+    msg:"Parfait, je vous pr\u00e9pare un devis d\u00e9taill\u00e9 avec le p\u00e9rim\u00e8tre pr\u00e9cis. D\u00e8s qu'il est valid\u00e9 et l'acompte re\u00e7u, je d\u00e9marre."};
+  if(score<55)return{label:"Vigilance",color:'var(--warn)',ic:'\u26a0\ufe0f',
+    advice:"Quelques signaux gris. Ne refuse pas, mais verrouille : acompte de 40% avant de commencer, p\u00e9rim\u00e8tre \u00e9crit noir sur blanc, et facture toute demande hors-devis. Teste son s\u00e9rieux avant d'investir du temps.",
+    msg:"Avant d'aller plus loin, je cadre toujours par \u00e9crit : voici le p\u00e9rim\u00e8tre exact, le tarif, et un acompte de 40% pour bloquer la mission. On est d'accord l\u00e0-dessus ?"};
+  return{label:"Risque \u00e9lev\u00e9",color:'var(--flag)',ic:'\ud83d\udea9',
+    advice:"Plusieurs drapeaux rouges classiques du client qui ne paie pas / d\u00e9borde le scope. Soit tu refuses, soit tu te blindes : acompte 50% non-remboursable, paiement par jalons, contrat sign\u00e9, et tout extra factur\u00e9 sans exception. S'il refuse ce cadre \u2192 c'est ta r\u00e9ponse.",
+    msg:"Merci pour votre int\u00e9r\u00eat. Je travaille uniquement sur devis sign\u00e9 avec acompte de 50% et p\u00e9rim\u00e8tre fixe \u2014 chaque ajout fait l'objet d'un avenant. Si ce cadre vous convient, je vous envoie tout \u00e7a."};
+}
+
+document.getElementById('scanBtn').onclick=async()=>{
+  if(Object.keys(answers).length<QUESTIONS.length){alert("R\u00e9ponds \u00e0 tous les signaux pour un scan fiable.");return;}
+  if(quota<=0){showLock();return;}
+  let raw=Object.values(answers).reduce((s,a)=>s+a.w,0);
+  const notes=document.getElementById('notes').value.toLowerCase();
+  const triggers=['gratuit','book','portfolio','ami','pas cher','moins cher','simple','rapidement','urgent','confiance'];
+  let bonus=triggers.filter(t=>notes.includes(t)).length*5;
+  const max=QUESTIONS.reduce((s,q)=>s+Math.max(...q.opts.map(o=>o.w)),0);
+  let score=Math.min(100,Math.round((raw+bonus)/max*100));
+  const v=verdict(score);
+  const topFlags=Object.entries(answers).map(([id,a])=>{const q=QUESTIONS.find(x=>x.id===id);return{q:q.head,a:a.t,w:a.w};})
+    .filter(f=>f.w>=16).sort((a,b)=>b.w-a.w).slice(0,3);
+  const flagsHtml=topFlags.length?topFlags.map(f=>
+    '<div class="flagrow"><span class="ic">\ud83d\udea9</span><div class="txt"><b>'+f.q+'</b><span>'+f.a+'</span></div></div>').join('')
+    :'<div class="flagrow"><span class="ic">\u2705</span><div class="txt"><b>Aucun drapeau rouge majeur</b><span>Les signaux sont dans le vert.</span></div></div>';
+  document.getElementById('resultArea').innerHTML=
+    '<div class="gauge-top"><div class="score" style="color:'+v.color+'">'+score+'<small>/100</small></div>'+
+    '<div class="verdict" style="color:'+v.color+'">'+v.ic+' '+v.label+'</div></div>'+
+    '<div class="meter"><div class="meter-fill" id="mf" style="background:'+v.color+'"></div></div>'+
+    '<div class="ring" id="ring">'+'<span>\ud83d\udea9</span>'.repeat(5)+'</div>'+
+    '<div class="flags"><h4>Drapeaux d\u00e9tect\u00e9s</h4>'+flagsHtml+'</div>'+
+    '<div class="advice"><h4>Comment te prot\u00e9ger</h4><p>'+v.advice+'</p>'+
+    '<div class="msgbox">\ud83d\udcac \u00ab '+v.msg+' \u00bb</div>'+
+    '<button class="copyBtn" id="copyMsg">Copier ce message</button></div>'+
+    '<div class="share">\ud83d\udcf2 \u00ab Ce client a scor\u00e9 '+score+'/100 de toxicit\u00e9 \u00bb</div>';
+  setTimeout(()=>{document.getElementById('mf').style.width=score+'%';},60);
+  const lit=Math.round(score/20);
+  document.querySelectorAll('#ring span').forEach((s,i)=>{setTimeout(()=>{if(i<lit)s.style.opacity='1';},120*i+200);});
+  document.getElementById('copyMsg').onclick=function(){navigator.clipboard.writeText(v.msg);
+    this.textContent='\u2713 Copi\u00e9';setTimeout(()=>this.textContent='Copier ce message',1600);};
+  quota--;document.getElementById('quotaTxt').textContent=quota;
+
+  if(currentUser){
+    const name=document.getElementById('cname').value.trim()||'Client sans nom';
+    try{
+      await addDoc(collection(db,'scans'),{uid:currentUser.uid,name,score,
+        verdict:v.label,createdAt:serverTimestamp()});
+      loadHistory();
+    }catch(e){console.error('Sauvegarde \u00e9chou\u00e9e',e);}
+  }
+};
+
+function showLock(){
+  const stripeReady=STRIPE_LINK&&!STRIPE_LINK.includes('REMPLACE_MOI');
+  document.getElementById('resultArea').innerHTML=
+    '<div class="lock" style="display:block"><h4>\ud83d\udea9 Quota atteint</h4>'+
+    '<p>Tu as utilis\u00e9 tes 3 scans gratuits du mois. Passe en illimit\u00e9 + historique clients complet.</p>'+
+    (stripeReady
+      ? '<a href="'+STRIPE_LINK+'" target="_blank">Passer en illimit\u00e9 \u2014 9 \u20ac/mois</a>'
+      : '<button onclick="alert(\'D\u00e9mo : colle ton Stripe Payment Link dans le code (variable STRIPE_LINK) pour activer le paiement r\u00e9el.\')">Passer en illimit\u00e9 \u2014 9 \u20ac/mois</button>')+
+    '</div>';
+}
+
+const modal=document.getElementById('authModal');
+let isSignup=false;
+const open=()=>modal.classList.add('on');
+const close=()=>modal.classList.remove('on');
+document.getElementById('loginLink').onclick=open;
+document.getElementById('closeModal').onclick=close;
+function bindSwitch(){
+  document.getElementById('switchLink').onclick=()=>{
+    isSignup=!isSignup;
+    document.getElementById('authTitle').textContent=isSignup?'Cr\u00e9er un compte':'Connexion';
+    document.getElementById('authBtn').textContent=isSignup?'Cr\u00e9er mon compte':'Se connecter';
+    document.getElementById('authSwitch').innerHTML=isSignup
+      ?'D\u00e9j\u00e0 un compte ? <a id="switchLink">Se connecter</a>':'Pas encore de compte ? <a id="switchLink">Cr\u00e9er un compte</a>';
+    document.getElementById('authErr').textContent='';
+    bindSwitch();
+  };
+}
+bindSwitch();
+document.getElementById('authBtn').onclick=async()=>{
+  const email=document.getElementById('authEmail').value.trim();
+  const pass=document.getElementById('authPass').value;
+  const errEl=document.getElementById('authErr');errEl.textContent='';
+  if(!email||pass.length<6){errEl.textContent='E-mail valide + mot de passe de 6 caract\u00e8res min.';return;}
+  try{
+    if(isSignup) await createUserWithEmailAndPassword(auth,email,pass);
+    else await signInWithEmailAndPassword(auth,email,pass);
+    close();
+  }catch(e){
+    const m={'auth/invalid-credential':'E-mail ou mot de passe incorrect.',
+      'auth/email-already-in-use':'Cet e-mail a d\u00e9j\u00e0 un compte. Connecte-toi.',
+      'auth/weak-password':'Mot de passe trop court (6 min).',
+      'auth/invalid-email':'E-mail invalide.'};
+    errEl.textContent=m[e.code]||'Erreur : '+e.code;
+  }
+};
+
+onAuthStateChanged(auth,user=>{
+  currentUser=user;
+  const ub=document.getElementById('userbox');
+  if(user){
+    ub.innerHTML='<span>'+user.email+'</span> \u00b7 <a id="logoutLink">D\u00e9connexion</a>';
+    document.getElementById('logoutLink').onclick=()=>signOut(auth);
+    loadHistory();
+  }else{
+    ub.innerHTML='<a id="loginLink">Se connecter</a>';
+    document.getElementById('loginLink').onclick=open;
+    document.getElementById('histList').innerHTML='<div class="hist-empty">Connecte-toi pour sauvegarder ton historique client.</div>';
+    document.getElementById('histCount').textContent='';
+  }
+});
+
+async function loadHistory(){
+  if(!currentUser)return;
+  const list=document.getElementById('histList');
+  try{
+    const qy=query(collection(db,'scans'),where('uid','==',currentUser.uid),orderBy('createdAt','desc'));
+    const snap=await getDocs(qy);
+    if(snap.empty){list.innerHTML='<div class="hist-empty">Aucun scan sauvegard\u00e9. Lance ton premier scan \ud83d\udc46</div>';
+      document.getElementById('histCount').textContent='';return;}
+    document.getElementById('histCount').textContent=snap.size+' client'+(snap.size>1?'s':'');
+    list.innerHTML='';
+    snap.forEach(d=>{
+      const s=d.data();
+      const col=s.score<25?'var(--safe)':s.score<55?'var(--warn)':'var(--flag)';
+      const bg=s.score<25?'rgba(46,230,166,.12)':s.score<55?'rgba(255,180,59,.12)':'rgba(255,59,92,.12)';
+      const row=document.createElement('div');row.className='hrow';
+      row.innerHTML='<div class="hl"><span class="hbadge" style="color:'+col+';background:'+bg+'">'+s.score+'</span>'+
+        '<span>'+s.name+'</span></div><button class="hdel" title="Supprimer">\u00d7</button>';
+      row.querySelector('.hdel').onclick=async()=>{await deleteDoc(doc(db,'scans',d.id));loadHistory();};
+      list.appendChild(row);
+    });
+  }catch(e){
+    list.innerHTML='<div class="hist-empty">Erreur de chargement. V\u00e9rifie tes r\u00e8gles Firestore (index requis ?).</div>';
+    console.error(e);
+  }
+}
+</script>
+</body>
+</html>
