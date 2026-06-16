@@ -176,9 +176,27 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// ====== A REMPLACER : ton Stripe Payment Link (https://buy.stripe.com/xxxx) ======
-const STRIPE_LINK = "https://buy.stripe.com/14A14f9iM7CMgVSc8TfUQ00";
-// ================================================================================
+// ====== A REMPLACER : l'URL de ta Cloud Function createCheckout ======
+// Tu l'obtiens après "firebase deploy" (ressemble à :
+// https://createcheckout-xxxxx-uc.a.run.app  ou  https://us-central1-redflag-10bd6.cloudfunctions.net/createCheckout )
+const CHECKOUT_URL = "https://REMPLACE_MOI-createcheckout";
+// =====================================================================
+
+// Lance le paiement Stripe via la Cloud Function (sécurisé, UID rattaché côté serveur)
+async function startCheckout(){
+  if(!currentUser){ openModal(); return; }
+  if(CHECKOUT_URL.includes('REMPLACE_MOI')){
+    alert("Démo : déploie ta Cloud Function et colle son URL dans CHECKOUT_URL pour activer le paiement réel.");
+    return;
+  }
+  try{
+    const r=await fetch(CHECKOUT_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({uid:currentUser.uid,email:currentUser.email})});
+    const data=await r.json();
+    if(data.url){ window.location.href=data.url; }
+    else throw new Error(data.error||'Réponse invalide');
+  }catch(e){ alert('Erreur paiement : '+e.message); console.error(e); }
+}
 
 const FREE_LIMIT = 3;
 const monthKey = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); };
@@ -309,10 +327,6 @@ document.getElementById('scanBtn').onclick=async()=>{
 };
 
 function showGate(kind){
-  const stripeReady=STRIPE_LINK&&!STRIPE_LINK.includes('REMPLACE_MOI');
-  const stripeBtn=stripeReady
-    ? '<a class="pro" href="'+STRIPE_LINK+'" target="_blank">Passer en illimit\u00e9 \u2014 9 \u20ac/mois</a>'
-    : '<button class="pro" onclick="alert(\'D\u00e9mo : colle ton Stripe Payment Link (variable STRIPE_LINK) pour activer le paiement r\u00e9el.\')">Passer en illimit\u00e9 \u2014 9 \u20ac/mois</button>';
   let html;
   if(kind==='login'){
     html='<div class="gate"><div class="big">\ud83d\udd10</div><h4>Cr\u00e9e ton compte gratuit</h4>'+
@@ -321,10 +335,11 @@ function showGate(kind){
   }else{
     html='<div class="gate"><div class="big">\ud83d\udea9</div><h4>Quota mensuel atteint</h4>'+
       '<p>Tu as utilis\u00e9 tes 3 scans gratuits ce mois-ci. Passe en illimit\u00e9 pour scanner chaque prospect sans compter.</p>'+
-      stripeBtn+'</div>';
+      '<button class="pro" id="gatePay">Passer en illimit\u00e9 \u2014 9 \u20ac/mois</button></div>';
   }
   document.getElementById('resultArea').innerHTML=html;
   if(kind==='login') document.getElementById('gateLogin').onclick=openModal;
+  if(kind==='quota') document.getElementById('gatePay').onclick=startCheckout;
 }
 
 // ============ AUTH ============
@@ -372,6 +387,17 @@ onAuthStateChanged(auth,async user=>{
     document.getElementById('logoutLink').onclick=()=>signOut(auth);
     await ensureProfile(user.uid);
     loadHistory();
+    // Retour de paiement Stripe : on re-lit le profil (le webhook a pu passer pro=true)
+    if(new URLSearchParams(location.search).get('paid')==='1'){
+      setTimeout(async()=>{
+        const snap=await getDoc(doc(db,'users',user.uid));
+        if(snap.exists()){ profile=snap.data(); refreshQuotaUI(); }
+        history.replaceState({},'',location.pathname);
+        if(profile.pro) document.getElementById('resultArea').innerHTML=
+          '<div class="gate"><div class="big">\u2728</div><h4>Bienvenue en illimit\u00e9 !</h4>'+
+          '<p>Ton compte est d\u00e9bloqu\u00e9. Scanne autant de prospects que tu veux.</p></div>';
+      }, 2500); // petit délai : le webhook arrive en 1-2s
+    }
     // efface le gate "login" si pr\u00e9sent
     if(document.querySelector('.gate'))
       document.getElementById('resultArea').innerHTML=
