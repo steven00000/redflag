@@ -58,6 +58,29 @@
   .meter-fill{height:100%;width:0;border-radius:6px;transition:width .8s cubic-bezier(.2,.8,.2,1)}
   .ring{display:flex;justify-content:center;gap:5px;margin:16px 0 4px}
   .ring span{font-size:18px;opacity:.25;transition:.3s}
+  /* --- Animation de scan IA --- */
+  .scanning{padding:34px 22px;text-align:center}
+  .radar{width:120px;height:120px;margin:0 auto 22px;position:relative;border-radius:50%;
+    border:2px solid var(--line);overflow:hidden}
+  .radar::before{content:'';position:absolute;inset:0;border-radius:50%;
+    background:conic-gradient(from 0deg,transparent 0deg,rgba(255,59,92,.45) 60deg,transparent 90deg);
+    animation:sweep 1.1s linear infinite}
+  .radar::after{content:'';position:absolute;inset:0;border-radius:50%;
+    background:radial-gradient(circle,transparent 30%,rgba(255,59,92,.06) 31%,transparent 32%,transparent 55%,rgba(255,59,92,.06) 56%,transparent 57%)}
+  @keyframes sweep{to{transform:rotate(360deg)}}
+  .scan-steps{text-align:left;max-width:300px;margin:0 auto}
+  .scan-step{display:flex;align-items:center;gap:11px;padding:7px 0;font-size:13.5px;color:var(--muted);
+    opacity:.3;transition:.4s}
+  .scan-step.active{opacity:1;color:var(--ink)}
+  .scan-step.done{opacity:.85;color:var(--safe)}
+  .scan-step .si{width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px}
+  .scan-step.active .si{animation:pulse .8s ease infinite}
+  @keyframes pulse{50%{transform:scale(1.3)}}
+  /* --- Bloc analyse IA --- */
+  .ai-badge{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--gold);background:rgba(255,210,74,.1);
+    border:1px solid rgba(255,210,74,.3);padding:4px 9px;border-radius:20px;margin-top:10px}
+  .ai-synth{padding:16px 22px;border-top:1px solid var(--line);font-size:13.5px;line-height:1.6;color:var(--ink)}
   .flags{padding:18px 22px;border-top:1px solid var(--line)}
   .flags h4{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:12px}
   .flagrow{display:flex;gap:11px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--line);font-size:13px}
@@ -181,6 +204,8 @@ const db = getFirestore(app);
 // Tu l'obtiens après "firebase deploy" (ressemble à :
 // https://createcheckout-xxxxx-uc.a.run.app  ou  https://us-central1-redflag-10bd6.cloudfunctions.net/createCheckout )
 const CHECKOUT_URL = "https://createcheckout-fvh5z6pgbq-uc.a.run.app";
+// URL de la fonction d'analyse IA — à coller après le déploiement (ressemble à https://analyzeclient-xxxx-uc.a.run.app)
+const ANALYZE_URL = "https://analyzeclient-fvh5z6pgbq-uc.a.run.app";
 // =====================================================================
 
 // Lance le paiement Stripe via la Cloud Function (sécurisé, UID rattaché côté serveur)
@@ -290,13 +315,96 @@ document.getElementById('scanBtn').onclick=async()=>{
   if(Object.keys(answers).length<QUESTIONS.length){alert("R\u00e9ponds \u00e0 tous les signaux pour un scan fiable.");return;}
   if(remaining()<=0){ showGate('quota'); return; }
 
+  const name=document.getElementById('cname').value.trim()||'Client sans nom';
+  const notesRaw=document.getElementById('notes').value;
+
+  // ---- Score de base (quiz) ----
   let raw=Object.values(answers).reduce((s,a)=>s+a.w,0);
-  const notes=document.getElementById('notes').value.toLowerCase();
+  const notes=notesRaw.toLowerCase();
   const triggers=['gratuit','book','portfolio','ami','pas cher','moins cher','simple','rapidement','urgent','confiance'];
   let bonus=triggers.filter(t=>notes.includes(t)).length*5;
   const max=QUESTIONS.reduce((s,q)=>s+Math.max(...q.opts.map(o=>o.w)),0);
   let score=Math.min(100,Math.round((raw+bonus)/max*100));
   const v=verdict(score);
+
+  // consomme le quota (sauf pro)
+  if(!profile.pro) await consumeOne(currentUser.uid);
+
+  // ---- PRO : analyse IA avec animation de scan ----
+  if(profile.pro && ANALYZE_URL && !ANALYZE_URL.includes('REMPLACE_MOI')){
+    runScanAnimation();
+    try{
+      const quizz=Object.entries(answers).map(([id,a])=>{
+        const q=QUESTIONS.find(x=>x.id===id);return{question:q.head,answer:a.t};});
+      const r=await fetch(ANALYZE_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({uid:currentUser.uid,quizz,notes:notesRaw,clientName:name})});
+      const ai=await r.json();
+      if(!r.ok) throw new Error(ai.error||'Erreur analyse');
+      renderAI(ai,name);
+      await saveScan(name, ai.score, ai.niveau);
+      return;
+    }catch(e){
+      console.error(e);
+      // repli sur le score de base si l'IA échoue
+      renderBasic(v,score,name);
+      await saveScan(name, score, v.label);
+      return;
+    }
+  }
+
+  // ---- GRATUIT : score de base direct ----
+  renderBasic(v,score,name);
+  await saveScan(name, score, v.label);
+};
+
+async function saveScan(name,score,verdictLabel){
+  try{
+    await addDoc(collection(db,'scans'),{uid:currentUser.uid,name,score,verdict:verdictLabel,createdAt:serverTimestamp()});
+    loadHistory();
+  }catch(e){console.error('Sauvegarde \u00e9chou\u00e9e',e);}
+}
+
+function runScanAnimation(){
+  const steps=['Lecture des signaux du prospect','Croisement avec les patterns \u00e0 risque',
+    'Analyse du langage et du ton','D\u00e9tection des drapeaux rouges','R\u00e9daction du diagnostic'];
+  document.getElementById('resultArea').innerHTML=
+    '<div class="scanning"><div class="radar"></div>'+
+    '<div class="scan-steps">'+steps.map((s,i)=>
+      '<div class="scan-step" id="ss'+i+'"><span class="si">\u25cb</span>'+s+'</div>').join('')+
+    '</div></div>';
+  steps.forEach((s,i)=>{
+    setTimeout(()=>{
+      const el=document.getElementById('ss'+i);if(!el)return;
+      el.classList.add('active');el.querySelector('.si').textContent='\u25c9';
+      if(i>0){const p=document.getElementById('ss'+(i-1));if(p){p.classList.remove('active');p.classList.add('done');p.querySelector('.si').textContent='\u2713';}}
+    }, i*650);
+  });
+}
+
+function renderAI(ai,name){
+  const score=ai.score??0;
+  const color=score<25?'var(--safe)':score<55?'var(--warn)':'var(--flag)';
+  const ic=score<25?'\u2705':score<55?'\u26a0\ufe0f':'\ud83d\udea9';
+  const flags=(ai.drapeaux||[]).map(f=>
+    '<div class="flagrow"><span class="ic">\ud83d\udea9</span><div class="txt"><b>'+f.titre+'</b><span>'+f.explication+'</span></div></div>').join('')
+    || '<div class="flagrow"><span class="ic">\u2705</span><div class="txt"><b>Aucun drapeau majeur</b><span>Les signaux sont sains.</span></div></div>';
+  document.getElementById('resultArea').innerHTML=
+    '<div class="gauge-top"><div class="score" style="color:'+color+'">'+score+'<small>/100</small></div>'+
+    '<div class="verdict" style="color:'+color+'">'+ic+' '+(ai.niveau||'')+'</div>'+
+    '<div class="ai-badge">\u2728 Analys\u00e9 par IA</div></div>'+
+    '<div class="meter"><div class="meter-fill" id="mf" style="background:'+color+'"></div></div>'+
+    '<div class="ai-synth">'+(ai.synthese||'')+'</div>'+
+    '<div class="flags"><h4>Drapeaux d\u00e9tect\u00e9s</h4>'+flags+'</div>'+
+    '<div class="advice"><h4>Comment te prot\u00e9ger</h4><p>'+(ai.conseils||'')+'</p>'+
+    '<div class="msgbox">\ud83d\udcac \u00ab '+(ai.message||'')+' \u00bb</div>'+
+    '<button class="copyBtn" id="copyMsg">Copier ce message</button></div>'+
+    '<div class="share">\ud83d\udcf2 \u00ab '+name+' a scor\u00e9 '+score+'/100 de toxicit\u00e9 \u00bb</div>';
+  setTimeout(()=>{document.getElementById('mf').style.width=score+'%';},60);
+  document.getElementById('copyMsg').onclick=function(){navigator.clipboard.writeText(ai.message||'');
+    this.textContent='\u2713 Copi\u00e9';setTimeout(()=>this.textContent='Copier ce message',1600);};
+}
+
+function renderBasic(v,score,name){
   const topFlags=Object.entries(answers).map(([id,a])=>{const q=QUESTIONS.find(x=>x.id===id);return{q:q.head,a:a.t,w:a.w};})
     .filter(f=>f.w>=16).sort((a,b)=>b.w-a.w).slice(0,3);
   const flagsHtml=topFlags.length?topFlags.map(f=>
@@ -310,22 +418,15 @@ document.getElementById('scanBtn').onclick=async()=>{
     '<div class="flags"><h4>Drapeaux d\u00e9tect\u00e9s</h4>'+flagsHtml+'</div>'+
     '<div class="advice"><h4>Comment te prot\u00e9ger</h4><p>'+v.advice+'</p>'+
     '<div class="msgbox">\ud83d\udcac \u00ab '+v.msg+' \u00bb</div>'+
-    '<button class="copyBtn" id="copyMsg">Copier ce message</button></div>'+
+    '<button class="copyBtn" id="copyMsg">Copier ce message</button>'+
+    (profile.pro?'':'<div style="margin-top:12px;font-size:12px;color:var(--gold)">\u2728 Passe en illimit\u00e9 pour une analyse IA compl\u00e8te et personnalis\u00e9e.</div>')+'</div>'+
     '<div class="share">\ud83d\udcf2 \u00ab Ce client a scor\u00e9 '+score+'/100 de toxicit\u00e9 \u00bb</div>';
   setTimeout(()=>{document.getElementById('mf').style.width=score+'%';},60);
   const lit=Math.round(score/20);
   document.querySelectorAll('#ring span').forEach((s,i)=>{setTimeout(()=>{if(i<lit)s.style.opacity='1';},120*i+200);});
   document.getElementById('copyMsg').onclick=function(){navigator.clipboard.writeText(v.msg);
     this.textContent='\u2713 Copi\u00e9';setTimeout(()=>this.textContent='Copier ce message',1600);};
-
-  // consomme le quota (sauf pro) + sauvegarde le scan
-  if(!profile.pro) await consumeOne(currentUser.uid);
-  const name=document.getElementById('cname').value.trim()||'Client sans nom';
-  try{
-    await addDoc(collection(db,'scans'),{uid:currentUser.uid,name,score,verdict:v.label,createdAt:serverTimestamp()});
-    loadHistory();
-  }catch(e){console.error('Sauvegarde \u00e9chou\u00e9e',e);}
-};
+}
 
 function showGate(kind){
   let html;
