@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<link rel="icon" type="image/svg+xml" href="redflag-favicon.svg">
+<link rel="icon" type="image/svg+xml" href="flagclient-logo.svg">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RedFlag — Scanne ton client avant de signer</title>
+<title>FlagClient — Scanne ton client avant de signer</title>
 <style>
   :root{
     --bg:#0d0f14;--panel:#161a22;--panel2:#1d222c;--line:#2a313d;
@@ -18,8 +18,10 @@
   header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;
     border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(13,15,20,.85);
     backdrop-filter:blur(10px);z-index:30;}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px;letter-spacing:-.02em}
-  .flagmark{font-size:21px;filter:drop-shadow(0 0 8px var(--flag-glow))}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:21px;letter-spacing:-.02em}
+  .brand .logoflag{font-size:22px;filter:drop-shadow(0 0 8px var(--flag-glow));transform:translateY(1px)}
+  .brand .nm-flag{color:var(--flag)}
+  .brand .nm-client{color:var(--ink)}
   .hright{display:flex;align-items:center;gap:16px}
   .quota{font-size:12px;color:var(--muted)}.quota b{color:var(--flag)}
   .quota.pro b{color:var(--gold)}
@@ -103,6 +105,9 @@
   .gate button,.gate a{display:block;width:100%;padding:13px;border:none;border-radius:10px;font-weight:800;cursor:pointer;font-size:14px;text-decoration:none}
   .gate .pri{background:var(--flag);color:#fff;margin-bottom:9px}
   .gate .pro{background:linear-gradient(135deg,var(--gold),#f0a92e);color:#1a1205}
+  .gate .soon-badge{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--gold);background:rgba(255,210,74,.1);border:1px solid rgba(255,210,74,.3);
+    padding:5px 11px;border-radius:20px;margin-bottom:14px}
   .hist{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
   .hist h4{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:12px;display:flex;justify-content:space-between}
   .hrow{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--line);font-size:13px}
@@ -129,7 +134,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><img src="redflag-logo.svg" alt="RedFlag" style="height:36px;display:block"></div>
+  <div class="brand"><img src="flagclient-logo.svg" alt="FlagClient" style="height:40px;display:block"></div>
   <div class="hright">
     <div class="quota" id="quotaBox">Connecte-toi pour scanner</div>
     <div class="userbox" id="userbox"><a id="loginLink">Se connecter</a></div>
@@ -140,7 +145,7 @@
   <div>
     <div class="eyebrow">Avant de signer ce client</div>
     <h1>Ce prospect va te <em>pourrir la vie</em> ?</h1>
-    <p class="sub">D&eacute;cris les signaux. RedFlag les croise avec ce que tout freelance v&eacute;t&eacute;ran sait reconna&icirc;tre, et te sort un score de toxicit&eacute; + comment te prot&eacute;ger.</p>
+    <p class="sub">D&eacute;cris les signaux. FlagClient les croise avec ce que tout freelance v&eacute;t&eacute;ran sait reconna&icirc;tre, et te sort un score de toxicit&eacute; + comment te prot&eacute;ger.</p>
     <div id="quiz"></div>
     <div class="q">
       <div class="q-head">Nom du prospect (pour ton historique)</div>
@@ -200,21 +205,19 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// ====== A REMPLACER : l'URL de ta Cloud Function createCheckout ======
-// Tu l'obtiens après "firebase deploy" (ressemble à :
-// https://createcheckout-xxxxx-uc.a.run.app  ou  https://us-central1-redflag-10bd6.cloudfunctions.net/createCheckout )
+// ====== Cloud Functions (conservées pour réactivation après statut auto-entrepreneur) ======
 const CHECKOUT_URL = "https://createcheckout-fvh5z6pgbq-uc.a.run.app";
-// URL de la fonction d'analyse IA — à coller après le déploiement (ressemble à https://analyzeclient-xxxx-uc.a.run.app)
 const ANALYZE_URL = "https://analyzeclient-fvh5z6pgbq-uc.a.run.app";
+
+// ====== Interrupteur paiement ======
+// SIRET obtenu → paiement réactivé. Nécessite Stripe en mode réel (clés sk_live_ + webhook).
+const PAYMENTS_ENABLED = true;
 // =====================================================================
 
 // Lance le paiement Stripe via la Cloud Function (sécurisé, UID rattaché côté serveur)
 async function startCheckout(){
   if(!currentUser){ openModal(); return; }
-  if(CHECKOUT_URL.includes('REMPLACE_MOI')){
-    alert("Démo : déploie ta Cloud Function et colle son URL dans CHECKOUT_URL pour activer le paiement réel.");
-    return;
-  }
+  if(!PAYMENTS_ENABLED){ showComingSoon(); return; }
   try{
     const r=await fetch(CHECKOUT_URL,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({uid:currentUser.uid,email:currentUser.email})});
@@ -419,7 +422,7 @@ function renderBasic(v,score,name){
     '<div class="advice"><h4>Comment te prot\u00e9ger</h4><p>'+v.advice+'</p>'+
     '<div class="msgbox">\ud83d\udcac \u00ab '+v.msg+' \u00bb</div>'+
     '<button class="copyBtn" id="copyMsg">Copier ce message</button>'+
-    (profile.pro?'':'<div style="margin-top:12px;font-size:12px;color:var(--gold)">\u2728 Passe en illimit\u00e9 pour une analyse IA compl\u00e8te et personnalis\u00e9e.</div>')+'</div>'+
+    (profile.pro?'':'<div style="margin-top:12px;font-size:12px;color:var(--gold)">\u2728 L\'analyse IA compl\u00e8te et personnalis\u00e9e arrive bient\u00f4t.</div>')+'</div>'+
     '<div class="share">\ud83d\udcf2 \u00ab Ce client a scor\u00e9 '+score+'/100 de toxicit\u00e9 \u00bb</div>';
   setTimeout(()=>{document.getElementById('mf').style.width=score+'%';},60);
   const lit=Math.round(score/20);
@@ -435,13 +438,26 @@ function showGate(kind){
       '<p>3 scans gratuits par mois, ton historique client sauvegard\u00e9, sur tous tes appareils.</p>'+
       '<button class="pri" id="gateLogin">Cr\u00e9er un compte / Se connecter</button></div>';
   }else{
-    html='<div class="gate"><div class="big">\ud83d\udea9</div><h4>Quota mensuel atteint</h4>'+
-      '<p>Tu as utilis\u00e9 tes 3 scans gratuits ce mois-ci. Passe en illimit\u00e9 pour scanner chaque prospect sans compter.</p>'+
-      '<button class="pro" id="gatePay">Passer en illimit\u00e9 \u2014 9 \u20ac/mois</button></div>';
+    if(PAYMENTS_ENABLED){
+      html='<div class="gate"><div class="big">\ud83d\udea9</div><h4>Quota mensuel atteint</h4>'+
+        '<p>Tu as utilis\u00e9 tes 3 scans gratuits ce mois-ci. Passe en illimit\u00e9 pour scanner chaque prospect sans compter.</p>'+
+        '<button class="pro" id="gatePay">Passer en illimit\u00e9 \u2014 9 \u20ac/mois</button></div>';
+    }else{
+      html='<div class="gate"><div class="soon-badge">\u2728 Bient\u00f4t disponible</div>'+
+        '<div class="big">\ud83d\ude80</div><h4>Quota mensuel atteint</h4>'+
+        '<p>Tu as utilis\u00e9 tes 3 scans gratuits ce mois-ci. L\'offre illimit\u00e9e avec analyse IA arrive tr\u00e8s bient\u00f4t \u2014 reviens le mois prochain pour de nouveaux scans gratuits.</p></div>';
+    }
   }
   document.getElementById('resultArea').innerHTML=html;
   if(kind==='login') document.getElementById('gateLogin').onclick=openModal;
-  if(kind==='quota') document.getElementById('gatePay').onclick=startCheckout;
+  if(kind==='quota' && PAYMENTS_ENABLED) document.getElementById('gatePay').onclick=startCheckout;
+}
+
+function showComingSoon(){
+  document.getElementById('resultArea').innerHTML=
+    '<div class="gate"><div class="soon-badge">\u2728 Bient\u00f4t disponible</div>'+
+    '<div class="big">\ud83d\ude80</div><h4>L\'offre illimit\u00e9e arrive</h4>'+
+    '<p>Le plan illimit\u00e9 avec analyse IA personnalis\u00e9e sera disponible tr\u00e8s prochainement. En attendant, profite de tes 3 scans gratuits chaque mois.</p></div>';
 }
 
 // ============ AUTH ============
@@ -490,7 +506,7 @@ onAuthStateChanged(auth,async user=>{
     await ensureProfile(user.uid);
     loadHistory();
     // Retour de paiement Stripe : on re-lit le profil (le webhook a pu passer pro=true)
-    if(new URLSearchParams(location.search).get('paid')==='1'){
+    if(PAYMENTS_ENABLED && new URLSearchParams(location.search).get('paid')==='1'){
       setTimeout(async()=>{
         const snap=await getDoc(doc(db,'users',user.uid));
         if(snap.exists()){ profile=snap.data(); refreshQuotaUI(); }
